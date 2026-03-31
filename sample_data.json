@@ -1,0 +1,25 @@
+{
+  "profile": {
+    "username": "ravi_g",
+    "full_name": "Ravi Gupta",
+    "email": "ravi@gmail.com",
+    "bio": "Student at VIT | Loves coding"
+  },
+  "posts": [
+    {
+      "caption": "Had a great day at college!",
+      "taken_at": "2025-01-15",
+      "media_type": "photo"
+    },
+    {
+      "caption": "Working on my OOAD project",
+      "taken_at": "2025-02-20",
+      "media_type": "text"
+    },
+    {
+      "caption": "",
+      "taken_at": "2025-03-01",
+      "media_type": "photo"
+    }
+  ]
+}

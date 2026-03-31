@@ -1,0 +1,15 @@
+# Maven build output - no need to push compiled files
+target/
+
+# Temp files created when user uploads a ZIP
+temp_extracted/
+
+# Output reports - these are generated files not source code
+output_reports/
+
+# VS Code settings - your teammate may use a different editor
+.vscode/
+
+# Windows system files
+Thumbs.db
+desktop.ini
