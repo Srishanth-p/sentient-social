@@ -7,6 +7,7 @@ import com.sentinel.model.Post;
 import com.sentinel.model.Profile;
 import com.sentinel.normaliser.Cleaner;
 import com.sentinel.reader.FileReader;
+import com.sentinel.risk.engine.RiskEngine;
 import com.sentinel.writer.ReportWriter;
 
 import javax.swing.JFileChooser;
@@ -101,19 +102,33 @@ public class Main {
         FileReader fileReader   = new FileReader();
         String preparedFilePath = fileReader.prepareFile(filePath);
 
-        // ── STEP 2: Detect which app it is from ───────────────────────
+        // ── STEP 2: Detect which app and resolve real root path ──────────────
         System.out.println("\n[2] Detecting app...");
-        String appName = IngestorPicker.detectAppName(preparedFilePath);
-        System.out.println("App detected: " + appName);
+        String detectedRaw = IngestorPicker.detectAppName(preparedFilePath);
 
-        // ── STEP 3: Pick the right ingestor ───────────────────────────
+        // If subfolder was found, split out the real path
+        String appName;
+        String realRootPath;
+        if (detectedRaw.contains("|")) {
+            String[] parts = detectedRaw.split("\\|", 2);
+            appName      = parts[0];
+            realRootPath = parts[1];
+            System.out.println("App detected: " + appName);
+            System.out.println("Real root   : " + realRootPath);
+        } else {
+            appName      = detectedRaw;
+            realRootPath = preparedFilePath;
+            System.out.println("App detected: " + appName);
+        }
+
+        // ── STEP 3: Pick the right ingestor ──────────────────────────────────
         System.out.println("\n[3] Loading ingestor...");
         Ingestor ingestor = IngestorPicker.getIngestor(appName);
 
-        // ── STEP 4: Read raw data from file ───────────────────────────
+        // ── STEP 4: Read raw data using the resolved root path ────────────────
         System.out.println("\n[4] Reading data from file...");
-        List<Post> rawPosts   = ingestor.readPosts(preparedFilePath);
-        Profile    rawProfile = ingestor.readProfile(preparedFilePath);
+        List<Post> rawPosts   = ingestor.readPosts(realRootPath);
+        Profile    rawProfile = ingestor.readProfile(realRootPath);
 
         System.out.println("Raw posts found   : " + rawPosts.size());
         System.out.println("Raw profile found : " + (rawProfile != null ? "yes" : "no"));
@@ -148,7 +163,16 @@ public class Main {
         ReportWriter writer    = new ReportWriter();
         String       savedPath = writer.saveReport(report);
 
-        // ── STEP 8: Clean up temp files if ZIP was used ───────────────
+        // ── STEP 8: Run Risk Analysis Engine ─────────────────────────────────
+        System.out.println("\n[8] Running risk analysis...");
+        RiskEngine riskEngine  = new RiskEngine();
+        OutputReport enriched  = riskEngine.analyse(report);
+
+        // Re-save the enriched report with risk scores attached
+        String riskReportPath  = writer.saveReport(enriched);
+        System.out.println("Risk report saved: " + riskReportPath);
+
+        // ── STEP 9: Clean up temp files if ZIP was used ───────────────
         fileReader.cleanUp();
 
         System.out.println("\nPipeline complete!");

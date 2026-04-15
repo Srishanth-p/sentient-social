@@ -4,31 +4,20 @@ import java.io.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-// This class prepares the user's uploaded file for reading
-// It handles ZIP extraction in small chunks
-// so even a 1GB ZIP file won't crash the program
 public class FileReader {
 
     private static final String TEMP_FOLDER = "temp_extracted";
+    private static final int    CHUNK_SIZE  = 8192;
+    private static final long   MAX_FILE_SIZE = 1024L * 1024L * 1024L;
 
-    // Chunk size for reading ZIP contents - 8KB at a time
-    // This means we never hold more than 8KB in memory while extracting
-    private static final int CHUNK_SIZE = 8192;
-
-    // Max file size we allow - 1GB in bytes
-    private static final long MAX_FILE_SIZE = 1024L * 1024L * 1024L;
-
-    // Main method - prepares the file and returns path ready to read
     public String prepareFile(String filePath) {
 
-        // Check if file exists
         File file = new File(filePath);
         if (!file.exists()) {
             System.out.println("File not found: " + filePath);
             return filePath;
         }
 
-        // Check file size before doing anything
         long fileSizeBytes = file.length();
         long fileSizeMB    = fileSizeBytes / (1024 * 1024);
         System.out.println("File size: " + fileSizeMB + " MB");
@@ -42,37 +31,30 @@ public class FileReader {
         System.out.println("File type detected: " + fileType.toUpperCase());
 
         switch (fileType) {
-            case "zip":
-                return handleZip(filePath);
-            case "json":
-                return filePath;
-            case "html":
-                return filePath;
-            case "csv":
-                return filePath;
+            case "zip":  return handleZip(filePath);
+            case "json": return filePath;
+            case "html": return filePath;
+            case "csv":  return filePath;
             default:
                 System.out.println("Unknown type. Trying to read as JSON.");
                 return filePath;
         }
     }
 
-    // Detects file type from extension
     public String detectFileType(String filePath) {
-
         if (filePath == null || filePath.isBlank()) return "unknown";
-
         String lower = filePath.toLowerCase().trim();
-
         if (lower.endsWith(".zip"))  return "zip";
         if (lower.endsWith(".json")) return "json";
         if (lower.endsWith(".html")) return "html";
         if (lower.endsWith(".htm"))  return "html";
         if (lower.endsWith(".csv"))  return "csv";
-
         return "unknown";
     }
 
-    // Extracts ZIP file in small chunks - memory safe for large ZIPs
+    // ── FIX: now preserves full subfolder structure inside the ZIP ──
+    // Returns the root temp folder path, not a single file
+    // This lets IngestorPicker and the ingestors navigate folders properly
     private String handleZip(String zipFilePath) {
 
         System.out.println("Extracting ZIP file (chunk by chunk)...");
@@ -82,8 +64,7 @@ public class FileReader {
             tempDir.mkdirs();
         }
 
-        String firstUsefulFile = null;
-        long   totalExtracted  = 0;
+        long totalExtracted = 0;
 
         try (ZipInputStream zipIn = new ZipInputStream(
                 new BufferedInputStream(
@@ -95,30 +76,34 @@ public class FileReader {
 
                 String entryName = entry.getName();
 
-                // Skip folders and hidden system files
-                if (entry.isDirectory()
-                        || entryName.startsWith("__MACOSX")
-                        || entryName.startsWith(".")) {
+                // Skip hidden/system files
+                if (entryName.startsWith("__MACOSX") || entryName.startsWith(".")) {
+                    zipIn.closeEntry();
+                    continue;
+                }
+
+                // ── FIX: build the full output path preserving subfolders ──
+                // e.g. "personal_information/instagram_profile_information.json"
+                // becomes "temp_extracted/personal_information/instagram_profile_information.json"
+                File outputFile = new File(TEMP_FOLDER + File.separator + entryName);
+
+                if (entry.isDirectory()) {
+                    // Create the folder so subfolders exist before files land in them
+                    outputFile.mkdirs();
                     zipIn.closeEntry();
                     continue;
                 }
 
                 if (isUsefulFile(entryName)) {
 
-                    String fileName   = new File(entryName).getName();
-                    String outputPath = TEMP_FOLDER + File.separator + fileName;
+                    // Make sure the parent folder exists
+                    outputFile.getParentFile().mkdirs();
 
-                    // Extract in chunks - never loads whole file into memory
-                    long fileSize = extractFileInChunks(zipIn, outputPath);
-                    totalExtracted += fileSize;
-
+                    long fileSize    = extractFileInChunks(zipIn, outputFile.getPath());
+                    totalExtracted  += fileSize;
                     long extractedMB = fileSize / (1024 * 1024);
-                    System.out.println("Extracted: " + fileName
+                    System.out.println("Extracted: " + entryName
                         + " (" + extractedMB + " MB)");
-
-                    if (firstUsefulFile == null) {
-                        firstUsefulFile = outputPath;
-                    }
                 }
 
                 zipIn.closeEntry();
@@ -131,33 +116,23 @@ public class FileReader {
             System.out.println("Error extracting ZIP: " + e.getMessage());
         }
 
-        if (firstUsefulFile != null) {
-            System.out.println("Using file: " + firstUsefulFile);
-            return firstUsefulFile;
-        }
-
-        return zipFilePath;
+        // ── FIX: return the root folder, not a single file ──
+        System.out.println("Extraction complete. Root folder: " + TEMP_FOLDER);
+        return TEMP_FOLDER;
     }
 
-    // Extracts one file from ZIP in 8KB chunks
-    // returns the size of the extracted file in bytes
     private long extractFileInChunks(ZipInputStream zipIn,
                                      String outputPath) throws IOException {
-
         byte[] buffer        = new byte[CHUNK_SIZE];
         long   totalBytes    = 0;
         long   lastPrintedMB = 0;
 
         try (BufferedOutputStream bos = new BufferedOutputStream(
                 new FileOutputStream(outputPath), CHUNK_SIZE)) {
-
             int bytesRead;
-
             while ((bytesRead = zipIn.read(buffer)) != -1) {
                 bos.write(buffer, 0, bytesRead);
                 totalBytes += bytesRead;
-
-                // Show progress every 50MB extracted
                 long currentMB = totalBytes / (1024 * 1024);
                 if (currentMB >= lastPrintedMB + 50) {
                     System.out.println("  Extracting... " + currentMB + " MB done");
@@ -165,11 +140,9 @@ public class FileReader {
                 }
             }
         }
-
         return totalBytes;
     }
 
-    // Checks if a file inside ZIP is worth extracting
     private boolean isUsefulFile(String fileName) {
         String lower = fileName.toLowerCase();
         return lower.endsWith(".json") ||
@@ -178,7 +151,6 @@ public class FileReader {
                lower.endsWith(".csv");
     }
 
-    // Cleans up temp folder after we are done
     public void cleanUp() {
         File tempDir = new File(TEMP_FOLDER);
         if (tempDir.exists()) {
